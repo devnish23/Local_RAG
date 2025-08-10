@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>gpt-oss — Local Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b0f19; --card:#12182a; --muted:#9aa5c9; --border:#1c2744; --ink:#e8ebf1; --accent:#2b5cff; }
+    *{box-sizing:border-box} body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; background:var(--bg); color:var(--ink); }
+    .wrap { display:grid; grid-template-columns: 300px 1fr; min-height:100vh; }
+    .side { border-right:1px solid var(--border); padding:16px; background:#0d1322; }
+    .main { padding:16px; }
+    .brand { font-weight:700; font-size:14px; color:#9fb3ff; margin-bottom:12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+    .row { display:flex; gap:12px; }
+    .row > * { flex:1; }
+    label { display:block; margin: 8px 0 6px; color:#9fb3ff }
+    input, button, textarea { width:100%; padding:12px; border-radius:10px; border:1px solid #2a355a; background:#0e1424; color:var(--ink); outline:none; }
+    textarea { min-height: 120px; resize: vertical; }
+    button { background:var(--accent); border-color:var(--accent); cursor:pointer; font-weight:600; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .chat { display:flex; flex-direction:column; gap:12px; }
+    .msg { background:#0e1424; border:1px solid #2a355a; border-radius:12px; padding:12px; }
+    .u .tag { color:#ffe082 } .a .tag { color:#9fe7a4 }
+    .tag { font-size:12px; display:block; margin-bottom:6px; opacity:.9 }
+    .muted { color:var(--muted); font-size:12px; }
+    .history { display:flex; flex-direction:column; gap:8px; }
+    .hist-item { background:#0e1424; border:1px solid #2a355a; border-radius:10px; padding:10px; cursor:pointer; }
+    .hist-item:hover { border-color:#3b4a7d; }
+    pre, code { background:#0a0f1c; border:1px solid #263358; border-radius:8px; padding:8px; overflow:auto; }
+    pre { white-space: pre; }
+    .toolbar { display:flex; gap:8px; }
+    a.link { color:#9fb3ff; text-decoration:none }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <aside class="side">
+      <div class="brand">gpt-oss (local)</div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="row">
+          <select id="modelSelect"></select>
+          <button id="refreshModels">↻</button>
+        </div>
+        <div class="muted" id="modelUsedNote" style="margin-top:6px"></div>
+        <label style="margin-top:12px">Temperature</label>
+        <input id="temp" type="number" step="0.1" min="0" max="2" value="0.6" />
+        <p class="muted" style="margin-top:12px">Admin tools: <a class="link" href="/admin" target="_blank">Open Admin Upload</a></p>
+      </div>
+      <div class="card">
+        <div class="history" id="history"></div>
+        <div class="toolbar" style="margin-top:12px">
+          <button id="new">New chat</button>
+          <button id="clear">Clear all</button>
+        </div>
+        <p class="muted" style="margin-top:8px">Chats are saved in your browser.</p>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="card">
+        <div class="chat" id="chat"></div>
+        <div style="margin-top:12px">
+          <label>System Prompt (optional)</label>
+          <textarea id="system" placeholder="You are a helpful assistant. Keep answers concise."></textarea>
+        </div>
+        <div style="margin-top:12px" class="row">
+          <textarea id="prompt" placeholder="Type your message and press Send…"></textarea>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="send">Send</button>
+          <button id="stop">Stop</button>
+        </div>
+        <p class="muted">Streaming + Markdown. If 20B fails, it auto-falls back to 8B/other.</p>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]))}
+    function renderMarkdown(md){
+      md = md.replace(/```([\s\S]*?)```/g, (_,code)=>`<pre><code>${escapeHtml(code.trim())}</code></pre>`);
+      md = md.replace(/`([^`]+)`/g, (_,code)=>`<code>${escapeHtml(code)}</code>`);
+      md = md.replace(/^###### (.*)$/gm,'<h6>$1</h6>').replace(/^##### (.*)$/gm,'<h5>$1</h5>').replace(/^#### (.*)$/gm,'<h4>$1</h4>').replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>');
+      md = md.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*]+)\*/g,'<em>$1</em>');
+      md = md.replace(/(^|\n)\s*[-*]\s+(.+)(?=\n|$)/g,(_,p,item)=>`${p}<ul><li>${item}</li></ul>`);
+      md = md.split(/\n{2,}/).map(p=>{ if (p.startsWith("<h") || p.startsWith("<pre>") || p.startsWith("<ul>")) return p; return `<p>${p.replace(/\n/g,"<br/>")}</p>`; }).join("\n");
+      md = md.replace(/<\/ul>\s*<ul>/g,''); return md;
+    }
+    const STORE_KEY = "gptoss_chats_v2";
+    function saveChats(){ localStorage.setItem(STORE_KEY, JSON.stringify(chats)); }
+    function loadChats(){ try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } }
+
+    let chats = loadChats();
+    let currentId = chats.length ? chats[0].id : createChat().id;
+    let controller = null;
+
+    const $ = id => document.getElementById(id);
+    const chatEl = $("chat"), histEl = $("history");
+    const promptEl = $("prompt"), sysEl = $("system");
+    const sendBtn = $("send"), stopBtn = $("stop");
+    const newBtn = $("new"), clearBtn = $("clear");
+    const tempEl = $("temp");
+    const modelSel = $("modelSelect");
+    const refreshBtn = $("refreshModels");
+    const modelUsedNote = $("modelUsedNote");
+
+    async function loadModels(){
+      try {
+        const r = await fetch("/api/models"); const names = r.ok ? await r.json() : [];
+        modelSel.innerHTML = "";
+        const preferred = ["gpt-oss:20b","llama3.1:8b","llama3.2:3b","mistral:7b"];
+        const ordered = [...new Set([...preferred, ...names])];
+        ordered.forEach(n=>{ const opt=document.createElement("option"); opt.value=n; opt.textContent=n; modelSel.appendChild(opt); });
+        const prev = localStorage.getItem("gptoss_selected_model");
+        if (prev && ordered.includes(prev)) modelSel.value = prev;
+      } catch {
+        modelSel.innerHTML = `<option value="gpt-oss:20b">gpt-oss:20b</option><option value="llama3.1:8b">llama3.1:8b</option>`;
+      }
+    }
+    modelSel.onchange = () => localStorage.setItem("gptoss_selected_model", modelSel.value);
+    refreshBtn.onclick = loadModels;
+
+    stopBtn.onclick = () => { if (controller) controller.abort(); };
+    newBtn.onclick = () => { currentId = createChat().id; render(); };
+    clearBtn.onclick = () => { if(confirm("Delete all chats?")) { chats = []; saveChats(); currentId = createChat().id; render(); } };
+
+    sendBtn.onclick = async () => {
+      const userText = promptEl.value.trim(); if (!userText) return;
+      const chat = getChat(currentId);
+      const sys = sysEl.value.trim(); if (sys) chat.messages.push({ role:"system", content: sys });
+      chat.messages.push({ role:"user", content: userText });
+      const assistant = { role:"assistant", content:"" }; chat.messages.push(assistant);
+      saveChats(); promptEl.value = ""; render();
+      try {
+        controller = new AbortController();
+        const resp = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: modelSel.value,
+            options: { temperature: Number(tempEl.value || 0.6), num_ctx: 512 },
+            messages: chat.messages.filter(m => m.content !== "")
+          })
+        });
+        const used = resp.headers.get("x-model-used"); modelUsedNote.textContent = used ? `Model used: ${used}` : "";
+        if (!resp.ok || !resp.body) { assistant.content = `**Error:** ${resp.status}`; saveChats(); renderLast(); return; }
+        const reader = resp.body.getReader(); const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read(); if (done) break;
+          assistant.content += decoder.decode(value, { stream:true }); saveChats(); renderLast();
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") { const last = getChat(currentId).messages.at(-1); last.content += `\n\n**Stream interrupted:** ${String(e)}`; saveChats(); renderLast(); }
+      } finally { controller = null; }
+    };
+
+    function createChat(){ const c={id:Date.now().toString(),title:"New chat",messages:[]}; chats.unshift(c); saveChats(); return c; }
+    function getChat(id){ return chats.find(c=>c.id===id) }
+    function render(){
+      histEl.innerHTML = "";
+      chats.forEach(c=>{ const div=document.createElement("div"); div.className="hist-item";
+        const preview=(c.messages.find(m=>m.role==="user")?.content||"Empty").slice(0,60);
+        div.textContent=(c.title && c.title!=="New chat") ? c.title : preview;
+        div.onclick=()=>{ currentId=c.id; render(); }; histEl.appendChild(div); });
+      const chat = getChat(currentId); chatEl.innerHTML="";
+      chat.messages.forEach(m=>{ if(!m.content) return; const div=document.createElement("div"); div.className="msg " + (m.role==="user"?"u":"a");
+        div.innerHTML = `<span class="tag">${m.role==="user"?"You":"Assistant"}</span>` + renderMarkdown(m.content); chatEl.appendChild(div); });
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+    function renderLast(){
+      const chat=getChat(currentId); const last=chat.messages.at(-1);
+      const nodes=chatEl.querySelectorAll(".msg"); const lastNode=nodes[nodes.length-1];
+      if(!last || !lastNode) return render();
+      lastNode.innerHTML = `<span class="tag">Assistant</span>` + renderMarkdown(last.content);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+    loadModels().then(()=>{ const remembered=localStorage.getItem("gptoss_selected_model"); if (remembered) modelSel.value=remembered; });
+    if (!chats.length) chats=[createChat()]; render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+qdrant-client
+python-multipart
+requests
+pydantic
+pandas
+openpyxl
+xlrd
+python-docx
+python-pptx
+pypdf
+tqdm

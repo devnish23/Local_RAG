@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports: ["11435:11434"]
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_NUM_THREAD: 6
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports: ["6333:6333"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  rag-api:
+    build: ./rag-api
+    container_name: rag-api
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBED_MODEL: nomic-embed-text:latest
+      GEN_MODEL: llama3.1:8b
+      QDRANT_URL: http://qdrant:6333
+      COLLECTION: docs
+      CHUNK_SIZE: "800"
+      CHUNK_OVERLAP: "120"
+      EMBED_BATCH: "32"
+      UPSERT_BATCH: "256"
+    depends_on: [ollama, qdrant]
+    ports: ["9000:9000"]
+    restart: unless-stopped
+
+  ui:
+    build: ./ui
+    container_name: gpt-oss-ui
+    environment:
+      # Direct chat to Ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      MODEL_NAME: gpt-oss:20b
+      FALLBACK_MODEL: llama3.1:8b
+      PORT: 3000
+      # Proxy to RAG API
+      RAG_API_URL: http://rag-api:9000
+    ports: ["3000:3000"]
+    depends_on: [rag-api]
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  qdrant_data:

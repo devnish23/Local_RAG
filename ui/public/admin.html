@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Admin Upload — RAG Ingest</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    :root{--bg:#0b0f19;--card:#12182a;--muted:#9aa5c9;--border:#1c2744;--ink:#e8ebf1;--accent:#2b5cff}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    .wrap{max-width:980px;margin:32px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:16px}
+    h1{font-size:20px;margin:0 0 12px} h2{font-size:16px;margin:0 0 8px;color:#9fb3ff}
+    label{display:block;margin:8px 0 6px;color:#9fb3ff}
+    input,textarea,button{width:100%;padding:12px;border-radius:10px;border:1px solid #2a355a;background:#0e1424;color:var(--ink)}
+    textarea{min-height:110px;resize:vertical} button{background:var(--accent);border-color:var(--accent);cursor:pointer;font-weight:600}
+    .row{display:flex;gap:12px}.row>*{flex:1}
+    .muted{color:var(--muted);font-size:12px}
+    .log{white-space:pre-wrap;background:#0e1424;border:1px solid #2a355a;border-radius:10px;padding:12px;min-height:120px}
+    .badge{display:inline-block;padding:2px 8px;border:1px solid #2a355a;border-radius:999px;font-size:12px;margin-right:6px;background:#0e1424}
+    @keyframes indet { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+    #bar.indeterminate{ width:40%; animation: indet 1.2s linear infinite; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Admin Upload — RAG Ingest</h1>
+
+    <div class="card">
+      <h2>Project</h2>
+      <div class="row">
+        <div><label>Project name</label><input id="project" value="default"/></div>
+        <div><label>Top-K for tests</label><input id="topk" type="number" min="1" max="10" value="4"/></div>
+      </div>
+      <p class="muted">All ingested chunks are tagged with this project.</p>
+    </div>
+
+    <div class="card">
+      <h2>Performance & Batching</h2>
+      <div class="row">
+        <div>
+          <label>Server EMBED_BATCH</label>
+          <input id="svEmbedBatch" type="number" min="1" value="32"/>
+          <span class="muted">16–64 is usually safe on CPU</span>
+        </div>
+        <div>
+          <label>Server UPSERT_BATCH</label>
+          <input id="svUpsertBatch" type="number" min="1" value="256"/>
+          <span class="muted">Bigger → fewer Qdrant calls</span>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <label>UI File BATCH</label>
+          <input id="uiFileBatch" type="number" min="1" value="16"/>
+          <span class="muted">Client batch size for file uploads</span>
+        </div>
+        <div>
+          <label>UI URL BATCH</label>
+          <input id="uiUrlBatch" type="number" min="1" value="20"/>
+          <span class="muted">Client batch size for URL ingest</span>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="loadCfg">Load from server</button>
+        <button id="saveCfg">Save server config</button>
+        <button id="saveUiCfg">Save UI defaults</button>
+      </div>
+      <p class="muted" id="cfgMsg" style="margin-top:8px"></p>
+    </div>
+
+    <div class="card">
+      <h2>Upload files / folders</h2>
+      <label>Files</label>
+      <input id="files" type="file" multiple />
+      <label style="margin-top:8px">Folder (Chrome/Edge)</label>
+      <input id="folder" type="file" webkitdirectory directory multiple />
+      <div class="row" style="margin-top:8px">
+        <button id="uploadBtn">Upload</button>
+        <button id="clearSel">Clear selection</button>
+      </div>
+      <p class="muted">Supported: .txt .md .pdf .docx .pptx .csv .xlsx .xls</p>
+    </div>
+
+    <div class="card">
+      <h2>Ingest URLs (incl. SharePoint file links)</h2>
+      <label>URLs (one per line)</label>
+      <textarea id="urls" placeholder="https://example.com/report.pdf&#10;https://contoso.sharepoint.com/:x:/r/sites/.../file.xlsx"></textarea>
+      <label>Bearer token (optional for protected links)</label>
+      <input id="bearer" placeholder="eyJhbGciOi..." />
+      <div class="row" style="margin-top:8px">
+        <button id="ingestUrls">Ingest URLs</button>
+      </div>
+      <p class="muted">For SharePoint file links, supply a token with files.read permission.</p>
+    </div>
+
+    <div class="card">
+      <h2>Ingest SharePoint folder (Graph)</h2>
+      <label>Share link (folder)</label>
+      <input id="shareLink" placeholder="https://contoso.sharepoint.com/:f:/r/sites/.../FolderName?e=..." />
+      <label>Bearer token (required)</label>
+      <input id="spToken" placeholder="eyJhbGciOi..." />
+      <div class="row" style="margin-top:8px">
+        <button id="ingestShare">Ingest SharePoint Folder</button>
+      </div>
+      <p class="muted">Uses Microsoft Graph to list & download files in the shared folder.</p>
+    </div>
+
+    <div class="card">
+      <h2>Status</h2>
+      <div id="status">
+        <span class="badge" id="bProj">project: default</span>
+        <span class="badge" id="bMode">idle</span>
+      </div>
+      <div style="margin:8px 0">
+        <div style="height:10px;background:#0e1424;border:1px solid #2a355a;border-radius:999px;overflow:hidden">
+          <div id="bar" style="height:100%;width:0%;background:#2b5cff"></div>
+        </div>
+        <div class="muted" id="pct" style="margin-top:6px">0%</div>
+      </div>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const logEl = $("log"), bar = $("bar"), pct = $("pct"), bMode = $("bMode");
+const cfgMsg = document.getElementById("cfgMsg");
+const svEmbedBatch = document.getElementById("svEmbedBatch");
+const svUpsertBatch = document.getElementById("svUpsertBatch");
+const uiFileBatch = document.getElementById("uiFileBatch");
+const uiUrlBatch = document.getElementById("uiUrlBatch");
+const loadCfgBtn = document.getElementById("loadCfg");
+const saveCfgBtn = document.getElementById("saveCfg");
+const saveUiCfgBtn = document.getElementById("saveUiCfg");
+
+function log(msg){ logEl.textContent += (logEl.textContent ? "\n" : "") + msg; logEl.scrollTop = logEl.scrollHeight; }
+function setBadge(id, text){ $(id).textContent = text; }
+function setMode(m){ bMode.textContent = m; }
+function setProgress(done, total){
+  const p = total ? Math.round((done/total)*100) : 0;
+  bar.style.width = p + "%"; pct.textContent = p + "%";
+}
+
+function preservePaths(fileList){
+  return Array.from(fileList).map(f=>{
+    const rel = f.webkitRelativePath || f.name;
+    return new File([f], rel, { type: f.type });
+  });
+}
+
+function noteCfg(msg){ cfgMsg.textContent = msg; setTimeout(()=>cfgMsg.textContent="", 4000); }
+
+// UI batch defaults persist in localStorage
+function loadUiDefaults(){
+  uiFileBatch.value = localStorage.getItem("uiFileBatch") || "16";
+  uiUrlBatch.value  = localStorage.getItem("uiUrlBatch")  || "20";
+}
+function saveUiDefaults(){
+  localStorage.setItem("uiFileBatch", uiFileBatch.value);
+  localStorage.setItem("uiUrlBatch", uiUrlBatch.value);
+  noteCfg("Saved UI defaults.");
+}
+
+// Server config
+async function loadServerCfg(){
+  const r = await fetch("/api/config");
+  const j = await r.json();
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  svEmbedBatch.value = j.EMBED_BATCH ?? 32;
+  svUpsertBatch.value = j.UPSERT_BATCH ?? 256;
+  noteCfg("Loaded server config.");
+}
+async function saveServerCfg(){
+  const body = {
+    EMBED_BATCH: Number(svEmbedBatch.value),
+    UPSERT_BATCH: Number(svUpsertBatch.value)
+  };
+  const r = await fetch("/api/config", {
+    method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify(body)
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(JSON.stringify(j));
+  noteCfg("Saved server config.");
+}
+
+// Hook buttons
+document.getElementById("project").oninput = () => setBadge("bProj", "project: " + document.getElementById("project").value.trim());
+document.getElementById("clearSel").onclick = () => { document.getElementById("files").value = ""; document.getElementById("folder").value = ""; };
+document.getElementById("uploadBtn").onclick = uploadFiles;
+document.getElementById("ingestUrls").onclick = ingestUrls;
+document.getElementById("ingestShare").onclick = ingestShare;
+loadCfgBtn.onclick = () => loadServerCfg().catch(e=>noteCfg("Load failed: " + e));
+saveCfgBtn.onclick  = () => saveServerCfg().catch(e=>noteCfg("Save failed: " + e));
+saveUiCfgBtn.onclick = () => saveUiDefaults();
+
+// Init
+loadUiDefaults();
+loadServerCfg().catch(()=>{}); // best-effort on page load
+
+async function postFormData(url, formData){
+  const r = await fetch(url, { method: "POST", body: formData });
+  const json = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(json.detail || JSON.stringify(json) || r.statusText);
+  return json;
+}
+async function postJSON(url, body){
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify(body) });
+  const json = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(json.detail || JSON.stringify(json) || r.statusText);
+  return json;
+}
+
+// Files/folders in batches
+async function uploadFiles(){
+  const project = document.getElementById("project").value.trim() || "default";
+  const files = [...preservePaths(document.getElementById("files").files), ...preservePaths(document.getElementById("folder").files)];
+  if (!files.length){ log("Pick files or a folder first."); return; }
+
+  const BATCH = Math.max(1, Number(uiFileBatch.value || 16));
+  const totalBatches = Math.ceil(files.length / BATCH);
+  setMode("uploading"); setProgress(0, totalBatches);
+  log(`Uploading ${files.length} file(s) in ${totalBatches} batch(es) of ${BATCH}…`);
+
+  let done = 0, totalChunks = 0, totalFiles = 0;
+  for (let i = 0; i < files.length; i += BATCH){
+    const fd = new FormData();
+    files.slice(i, i+BATCH).forEach(f => fd.append("files", f, f.name));
+    fd.append("project", project);
+
+    try {
+      const resp = await postFormData("/api/ingest", fd);
+      totalChunks += (resp.chunks || 0);
+      totalFiles += (resp.files?.length || 0);
+      done++; setProgress(done, totalBatches);
+      log(`✓ Batch ${done}/${totalBatches}: ${resp.files?.length || 0} file(s), ${resp.chunks || 0} chunk(s).`);
+    } catch(e){
+      done++; setProgress(done, totalBatches);
+      log(`✗ Batch ${done}/${totalBatches} failed: ${e}`);
+    }
+  }
+  setMode("idle");
+  log(`Done. Ingested total ${totalChunks} chunk(s) from ${totalFiles} file(s).`);
+}
+
+// URLs in batches
+async function ingestUrls(){
+  const project = document.getElementById("project").value.trim() || "default";
+  const bearer = document.getElementById("bearer").value.trim() || null;
+  const urls = document.getElementById("urls").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if (!urls.length){ log("Paste 1+ URLs."); return; }
+
+  const BATCH = Math.max(1, Number(uiUrlBatch.value || 20));
+  const totalBatches = Math.ceil(urls.length / BATCH);
+  setMode("fetching"); setProgress(0, totalBatches);
+  log(`Fetching ${urls.length} URL(s) in ${totalBatches} batch(es) of ${BATCH}…`);
+
+  let done = 0, fetched = 0, chunks = 0;
+  for (let i=0; i<urls.length; i+=BATCH){
+    const slice = urls.slice(i, i+BATCH);
+    try {
+      const resp = await postJSON("/api/ingest_urls", { project, urls: slice, bearer });
+      fetched += (resp.fetched || 0); chunks += (resp.chunks || 0);
+      done++; setProgress(done, totalBatches);
+      log(`✓ Batch ${done}/${totalBatches}: fetched ${resp.fetched || 0}, chunks ${resp.chunks || 0}.`);
+    } catch(e){
+      done++; setProgress(done, totalBatches);
+      log(`✗ Batch ${done}/${totalBatches} failed: ${e}`);
+    }
+  }
+  setMode("idle");
+  log(`Done. Fetched ${fetched}, ingested ${chunks} chunk(s).`);
+}
+
+// SharePoint folder (single call; show indeterminate progress)
+async function ingestShare(){
+  const project = document.getElementById("project").value.trim() || "default";
+  const share_url = document.getElementById("shareLink").value.trim();
+  const bearer = document.getElementById("spToken").value.trim();
+  if (!share_url || !bearer){ log("Provide share link and bearer token."); return; }
+
+  setMode("graph"); bar.classList.add("indeterminate"); log("Listing & downloading from SharePoint...");
+  try {
+    const resp = await postJSON("/api/ingest_sharepoint", { project, share_url, bearer });
+    log(`✓ Downloaded ${resp.fetched} file(s), ingested ${resp.chunks} chunk(s).`);
+  } catch(e){
+    log("✗ SharePoint ingest failed: " + e);
+  } finally {
+    setMode("idle"); bar.classList.remove("indeterminate"); setProgress(0, 1);
+  }
+}
+</script>
+</body>
+</html>
