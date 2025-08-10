@@ -89,6 +89,35 @@ curl -X POST http://localhost:9000/config \
 curl http://localhost:9000/config
 ```
 
+## 🚀 Offline Deployment
+
+For offline environments, we provide a complete offline bundle solution:
+
+### Quick Offline Setup
+
+1. **Create offline bundle** (on system with internet):
+   ```bash
+   ./create_offline_bundle.sh
+   ```
+
+2. **Transfer bundle** to offline system
+
+3. **Deploy on offline system**:
+   ```bash
+   cd rag-offline-bundle-YYYYMMDD-HHMMSS
+   ./deploy.sh
+   ```
+
+### Docker Hub Images
+
+All services are available on Docker Hub under `devaraj13`:
+- **RAG API**: [devaraj13/rag-api](https://hub.docker.com/r/devaraj13/rag-api)
+- **UI**: [devaraj13/rag-ui](https://hub.docker.com/r/devaraj13/rag-ui)
+- **Ollama**: [devaraj13/ollama](https://hub.docker.com/r/devaraj13/ollama)
+- **Qdrant**: [devaraj13/qdrant](https://hub.docker.com/r/devaraj13/qdrant)
+
+📖 **Detailed offline deployment guide**: [OFFLINE_DEPLOYMENT.md](OFFLINE_DEPLOYMENT.md)
+
 ## 📚 Usage
 
 ### 1. Upload Documents
