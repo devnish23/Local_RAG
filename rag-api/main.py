@@ -43,13 +43,20 @@ def ensure_collection(dim=768):
 def embed_batch(text_list):
     if not text_list:
         return []
-    r = requests.post(f"{OLLAMA}/api/embeddings", json={
-        "model": EMBED_MODEL,
-        "prompt": text_list
-    }, timeout=300)
-    r.raise_for_status()
-    data = r.json()
-    return [d["embedding"] for d in data["embeddings"]]
+    embeddings = []
+    for text in text_list:
+        if text and text.strip():  # Skip empty strings
+            r = requests.post(f"{OLLAMA}/api/embeddings", json={
+                "model": EMBED_MODEL,
+                "prompt": text
+            }, timeout=300)
+            r.raise_for_status()
+            data = r.json()
+            embeddings.append(data["embedding"])
+        else:
+            # For empty strings, create a zero vector (768 dimensions for nomic-embed-text)
+            embeddings.append([0.0] * 768)
+    return embeddings
 
 def embed(text):
     r = requests.post(f"{OLLAMA}/api/embeddings", json={

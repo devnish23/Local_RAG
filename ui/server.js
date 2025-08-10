@@ -106,9 +106,21 @@ app.get("/admin", (_, res) => res.sendFile(process.cwd() + "/public/admin.html")
 
 app.post("/api/ingest", async (req, res) => {
   try {
-    const upstream = await fetch(`${RAG_BASE}/ingest`, { method: "POST", headers: { ...req.headers }, body: req });
+    // Only forward the Content-Type so the boundary is preserved.
+    const ct = req.headers["content-type"] || "application/octet-stream";
+
+    const upstream = await fetch(`${RAG_BASE}/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": ct },
+      body: req,           // stream the incoming multipart
+      duplex: "half",      // <-- REQUIRED for streamed bodies in Node 18+/20+
+    });
+
     const text = await upstream.text();
-    res.status(upstream.status).type(upstream.headers.get("content-type") || "application/json").send(text);
+    res
+      .status(upstream.status)
+      .type(upstream.headers.get("content-type") || "application/json")
+      .send(text);
   } catch (e) {
     res.status(502).json({ error: "Proxy /ingest failed", detail: String(e) });
   }

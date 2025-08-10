@@ -1,0 +1,1 @@
+# Project Documentation\n\n## Overview\nThis is a comprehensive test document for the RAG system.\n\n## Features\n- Document processing\n- Text extraction\n- Vector embeddings\n- Semantic search\n\n## Technical Details\n- Built with FastAPI\n- Uses Ollama for embeddings\n- Qdrant vector database\n- Docker containerization
