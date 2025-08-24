@@ -1,0 +1,17 @@
+{
+  "name": "rag-upload-test",
+  "version": "1.0.0",
+  "description": "Test script for RAG system file upload",
+  "main": "test_upload.js",
+  "scripts": {
+    "test": "node test_upload.js",
+    "install-playwright": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {},
+  "keywords": ["rag", "testing", "playwright"],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .result { margin: 20px 0; padding: 15px; border-radius: 5px; }
+        .success { background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .error { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .info { background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        input[type="file"] { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🚀 RAG System Upload Test</h1>
+    
+    <div class="info">
+        <h3>Test Instructions:</h3>
+        <ol>
+            <li>Select a file using the file input below</li>
+            <li>Click "Test Upload" to test the upload functionality</li>
+            <li>Check the results below</li>
+        </ol>
+    </div>
+
+    <div>
+        <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.csv,.md">
+        <button onclick="testUpload()">Test Upload</button>
+        <button onclick="clearResults()">Clear Results</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        async function testUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const resultsDiv = document.getElementById('results');
+            
+            if (!fileInput.files[0]) {
+                showResult('Please select a file first', 'error');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            showResult(`Testing upload of: ${file.name} (${file.size} bytes)`, 'info');
+
+            try {
+                // Test 1: Direct RAG API call
+                showResult('🔍 Testing direct RAG API call...', 'info');
+                const formData1 = new FormData();
+                formData1.append('files', file);
+                
+                const response1 = await fetch('http://localhost:9000/ingest', {
+                    method: 'POST',
+                    body: formData1
+                });
+                
+                const result1 = await response1.text();
+                showResult(`📡 Direct RAG API Response (${response1.status}): ${result1}`, 
+                    response1.ok ? 'success' : 'error');
+
+                // Test 2: UI Proxy call
+                showResult('🔍 Testing through UI proxy...', 'info');
+                const formData2 = new FormData();
+                formData2.append('files', file);
+                
+                const response2 = await fetch('http://localhost:3000/api/ingest', {
+                    method: 'POST',
+                    body: formData2
+                });
+                
+                const result2 = await response2.text();
+                showResult(`📡 UI Proxy Response (${response2.status}): ${result2}`, 
+                    response2.ok ? 'success' : 'error');
+
+                // Test 3: Check if the issue is with the admin page specifically
+                showResult('🔍 Testing admin page accessibility...', 'info');
+                const adminResponse = await fetch('http://localhost:3000/admin');
+                showResult(`📡 Admin Page Response (${adminResponse.status}): ${adminResponse.ok ? 'OK' : 'Failed'}`, 
+                    adminResponse.ok ? 'success' : 'error');
+
+            } catch (error) {
+                showResult(`❌ Upload test failed: ${error.message}`, 'error');
+                console.error('Upload error:', error);
+            }
+        }
+
+        function showResult(message, type) {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `result ${type}`;
+            resultDiv.innerHTML = message;
+            resultsDiv.appendChild(resultDiv);
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        // Test connection on page load
+        window.onload = async function() {
+            showResult('🚀 Page loaded, testing basic connectivity...', 'info');
+            
+            try {
+                const healthResponse = await fetch('http://localhost:3000/health');
+                const healthData = await healthResponse.json();
+                showResult(`✅ Health check: ${JSON.stringify(healthData)}`, 'success');
+            } catch (error) {
+                showResult(`❌ Health check failed: ${error.message}`, 'error');
+            }
+        };
+    </script>
+</body>
+</html>
